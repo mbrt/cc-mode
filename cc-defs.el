@@ -2,7 +2,7 @@
 
 ;; Copyright (C) 1985, 1987, 1992, 1993, 1994, 1995, 1996, 1997, 1998,
 ;;   1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009,
-;;   2010, 2011   Free Software Foundation, Inc.
+;;   2010, 2011, 2012   Free Software Foundation, Inc.
 
 ;; Authors:    2003- Alan Mackenzie
 ;;	       1998- Martin Stjernholm
@@ -1454,8 +1454,7 @@ been put there by c-put-char-property.  POINT remains unchanged."
   ;; Do a (scan-lists FROM 1 1).  Any finishing position which either (i) is
   ;; determined by and angle bracket; or (ii) is inside a macro whose start
   ;; isn't POINT-MACRO-START doesn't count as a finishing position.
-  `(let ((here (point))
-	 (pos (scan-lists ,from 1 1)))
+  `(let ((pos (scan-lists ,from 1 1)))
      (while (eq (char-before pos) ?>)
        (setq pos (scan-lists pos 1 1)))
      pos))
@@ -1464,8 +1463,7 @@ been put there by c-put-char-property.  POINT remains unchanged."
   ;; Do a (scan-lists FROM 1 -1).  Any finishing position which either (i) is
   ;; determined by and angle bracket; or (ii) is inside a macro whose start
   ;; isn't POINT-MACRO-START doesn't count as a finishing position.
-  `(let ((here (point))
-	 (pos (scan-lists ,from 1 -1)))
+  `(let ((pos (scan-lists ,from 1 -1)))
      (while (eq (char-before pos) ?<)
        (setq pos (scan-lists pos 1 1))
        (setq pos (scan-lists pos 1 -1)))
@@ -1475,8 +1473,7 @@ been put there by c-put-char-property.  POINT remains unchanged."
   ;; Do a (scan-lists FROM -1 1).  Any finishing position which either (i) is
   ;; determined by and angle bracket; or (ii) is inside a macro whose start
   ;; isn't POINT-MACRO-START doesn't count as a finishing position.
-  `(let ((here (point))
-	 (pos (scan-lists ,from -1 1)))
+  `(let ((pos (scan-lists ,from -1 1)))
      (while (eq (char-after pos) ?<)
        (setq pos (scan-lists pos -1 1)))
      pos))
@@ -1485,8 +1482,7 @@ been put there by c-put-char-property.  POINT remains unchanged."
   ;; Do a (scan-lists FROM -1 -1).  Any finishing position which either (i) is
   ;; determined by and angle bracket; or (ii) is inside a macro whose start
   ;; isn't POINT-MACRO-START doesn't count as a finishing position.
-  `(let ((here (point))
-	 (pos (scan-lists ,from -1 -1)))
+  `(let ((pos (scan-lists ,from -1 -1)))
      (while (eq (char-after pos) ?>)
        (setq pos (scan-lists pos -1 1))
        (setq pos (scan-lists pos -1 -1)))

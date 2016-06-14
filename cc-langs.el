@@ -2,7 +2,7 @@
 
 ;; Copyright (C) 1985, 1987, 1992, 1993, 1994, 1995, 1996, 1997, 1998,
 ;;   1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009,
-;;   2010, 2011   Free Software Foundation, Inc.
+;;   2010, 2011, 2012   Free Software Foundation, Inc.
 
 ;; Authors:    2002- Alan Mackenzie
 ;;	       1998- Martin Stjernholm
@@ -218,6 +218,12 @@ the evaluated constant value at compile time."
     ;; (such as 'prefix) to accept, or a function which will be called
     ;; with the group symbol for each group and should return non-nil
     ;; if that group is to be included.
+    ;;
+    ;; OP-FILTER selects the operators.  It is either t to select all
+    ;; operators, a string to select all operators for which `string-match'
+    ;; matches the operator with the string, or a function which will be
+    ;; called with the operator and should return non-nil when the operator
+    ;; is to be selected.
     ;;
     ;; If XLATE is given, it's a function which is called for each
     ;; matching operator and its return value is collected instead.
@@ -451,9 +457,12 @@ so that all identifiers are recognized as words.")
   ;; The value here may be a list of functions or a single function.
   t nil
   c++ '(c-extend-region-for-CPP
+	c-before-change-check-raw-strings
 	c-before-change-check-<>-operators
+	c-depropertize-CPP
 	c-invalidate-macro-cache)
   (c objc) '(c-extend-region-for-CPP
+	     c-depropertize-CPP
 	     c-invalidate-macro-cache)
   ;; java 'c-before-change-check-<>-operators
   awk 'c-awk-record-region-clear-NL)
@@ -487,6 +496,7 @@ parameters \(point-min) and \(point-max).")
 	     c-neutralize-syntax-in-and-mark-CPP
 	     c-change-expand-fl-region)
   c++ '(c-extend-font-lock-region-for-macros
+	c-after-change-re-mark-raw-strings
 	c-neutralize-syntax-in-and-mark-CPP
 	c-restore-<>-properties
 	c-change-expand-fl-region)
@@ -953,6 +963,9 @@ since CC Mode treats every identifier as an expression."
   ;; in this variable; precedence, associativity etc are present as a
   ;; preparation for future work.
 
+  ;; FIXME!!!  C++11's "auto" operators "=" and "->" need to go in here
+  ;; somewhere.  2012-03-24.
+
   t `(;; Preprocessor.
       ,@(when (c-lang-const c-opt-cpp-prefix)
 	  `((prefix "#"
@@ -1232,24 +1245,50 @@ operators."
 		    t
 		    "\\`<."
 		    (lambda (op) (substring op 1)))))
-
 (c-lang-defvar c-<-op-cont-regexp (c-lang-const c-<-op-cont-regexp))
+
+(c-lang-defconst c->-op-cont-tokens
+  ;; A list of second and subsequent characters of all multicharacter tokens
+  ;; that begin with ">".
+  t (c-filter-ops (c-lang-const c-all-op-syntax-tokens)
+		  t
+		  "\\`>."
+		  (lambda (op) (substring op 1)))
+  java (c-filter-ops (c-lang-const c-all-op-syntax-tokens)
+		     t
+		     "\\`>[^>]\\|\\`>>[^>]"
+		     (lambda (op) (substring op 1))))
 
 (c-lang-defconst c->-op-cont-regexp
   ;; Regexp matching the second and subsequent characters of all
   ;; multicharacter tokens that begin with ">".
-  t (c-make-keywords-re nil
-      (c-filter-ops (c-lang-const c-all-op-syntax-tokens)
-		    t
-		    "\\`>."
-		    (lambda (op) (substring op 1))))
-  java (c-make-keywords-re nil
-	 (c-filter-ops (c-lang-const c-all-op-syntax-tokens)
-		       t
-		       "\\`>[^>]\\|\\`>>[^>]"
-		       (lambda (op) (substring op 1)))))
-
+  t (c-make-keywords-re nil (c-lang-const c->-op-cont-tokens)))
 (c-lang-defvar c->-op-cont-regexp (c-lang-const c->-op-cont-regexp))
+
+(c-lang-defconst c->-op-without->-cont-regexp
+  ;; Regexp matching the second and subsequent characters of all
+  ;; multicharacter tokens that begin with ">" except for those beginning with
+  ;; ">>".
+  t (c-make-keywords-re nil
+      (c--set-difference
+       (c-lang-const c->-op-cont-tokens)
+       (c-filter-ops (c-lang-const c-all-op-syntax-tokens)
+		     t
+		     "\\`>>"
+		     (lambda (op) (substring op 1)))
+       :test 'string-equal)))
+(c-lang-defvar c->-op-without->-cont-regexp
+  (c-lang-const c->-op-without->-cont-regexp))
+
+(c-lang-defconst c-multichar->-op-not->>-regexp
+  ;; Regexp matching multichar tokens containing ">", except ">>"
+  t (c-make-keywords-re nil
+      (delete ">>"
+	      (c-filter-ops (c-lang-const c-all-op-syntax-tokens)
+			    t
+			    "\\(.>\\|>.\\)"))))
+(c-lang-defvar c-multichar->-op-not->>-regexp
+  (c-lang-const c-multichar->-op-not->>-regexp))
 
 (c-lang-defconst c-stmt-delim-chars
   ;; The characters that should be considered to bound statements.  To
@@ -1264,6 +1303,22 @@ operators."
   t    "^;,{}?:")
 (c-lang-defvar c-stmt-delim-chars-with-comma
   (c-lang-const c-stmt-delim-chars-with-comma))
+
+(c-lang-defconst c-auto-ops
+  ;; Ops which signal C++11's new auto uses.
+  t nil
+  c++ '("=" "->"))
+(c-lang-defconst c-auto-ops-re
+  t (c-make-keywords-re nil (c-lang-const c-auto-ops)))
+(c-lang-defvar c-auto-ops-re (c-lang-const c-auto-ops-re))
+
+(c-lang-defconst c-haskell-op
+  ;; Op used in the new C++11 auto function definition, indicating type.
+  t nil
+  c++ '("->"))
+(c-lang-defconst c-haskell-op-re
+  t (c-make-keywords-re nil (c-lang-const c-haskell-op)))
+(c-lang-defvar c-haskell-op-re (c-lang-const c-haskell-op-re))
 
 (c-lang-defconst c-pre-start-tokens
   "List of operators following which an apparent declaration \(e.g.
@@ -1689,6 +1744,18 @@ of a variable declaration."
   t (c-make-keywords-re t (c-lang-const c-typedef-kwds)))
 (c-lang-defvar c-typedef-key (c-lang-const c-typedef-key))
 
+(c-lang-defconst c-typeof-kwds
+  "Keywords followed by a parenthesized expression, which stands for
+the type of that expression."
+  t nil
+  c '("typeof")				; longstanding GNU C(++) extension.
+  c++ '("decltype" "typeof"))
+
+(c-lang-defconst c-typeof-key
+  ;; Adorned regexp matching `c-typeof-kwds'.
+  t (c-make-keywords-re t (c-lang-const c-typeof-kwds)))
+(c-lang-defvar c-typeof-key (c-lang-const c-typeof-key))
+
 (c-lang-defconst c-type-prefix-kwds
   "Keywords where the following name - if any - is a type name, and
 where the keyword together with the symbol works as a type in
@@ -1714,7 +1781,7 @@ but they don't build a type of themselves.  Unlike the keywords on
 not the type face."
   t    nil
   c    '("const" "restrict" "volatile")
-  c++  '("const" "noexcept" "volatile" "throw")
+  c++  '("const" "noexcept" "volatile" "throw" "final" "override")
   objc '("const" "volatile"))
 
 (c-lang-defconst c-opt-type-modifier-key
@@ -1790,6 +1857,26 @@ will be handled."
   ;; block is a brace list.
   t (c-make-keywords-re t (c-lang-const c-brace-list-decl-kwds)))
 (c-lang-defvar c-brace-list-key (c-lang-const c-brace-list-key))
+
+(c-lang-defconst c-after-brace-list-decl-kwds
+  "Keywords that might follow keywords in `c-brace-list-decl-kwds'
+and precede the opening brace."
+  t    nil
+  c++  '("class" "struct"))
+
+(c-lang-defconst c-after-brace-list-key
+  ;; Regexp matching keywords that can fall between a brace-list
+  ;; keyword and the associated brace list.
+  t (c-make-keywords-re t (c-lang-const c-after-brace-list-decl-kwds)))
+(c-lang-defvar c-after-brace-list-key (c-lang-const c-after-brace-list-key))
+
+(c-lang-defconst c-recognize-post-brace-list-type-p
+  "Set to t when we recognize a colon and then a type after an enum,
+e.g., enum foo : int { A, B, C };"
+  t nil
+  c++ t)
+(c-lang-defvar c-recognize-post-brace-list-type-p
+	       (c-lang-const c-recognize-post-brace-list-type-p))
 
 (c-lang-defconst c-other-block-decl-kwds
   "Keywords where the following block (if any) contains another
@@ -1872,6 +1959,7 @@ will be handled."
   ;; {...}").
   t    (append (c-lang-const c-class-decl-kwds)
 	       (c-lang-const c-brace-list-decl-kwds))
+  c++  (append (c-lang-const c-typeless-decl-kwds) '("auto")) ; C++11.
   ;; Note: "manages" for CORBA CIDL clashes with its presence on
   ;; `c-type-list-kwds' for IDL.
   idl  (append (c-lang-const c-typeless-decl-kwds)
@@ -2022,7 +2110,8 @@ one of `c-type-list-kwds', `c-ref-list-kwds',
   t (c-make-keywords-re t
       (c--set-difference (c-lang-const c-keywords)
 			 (append (c-lang-const c-type-start-kwds)
-				 (c-lang-const c-prefix-spec-kwds))
+				 (c-lang-const c-prefix-spec-kwds)
+				 (c-lang-const c-typeof-kwds))
 			 :test 'string-equal)))
 (c-lang-defvar c-not-decl-init-keywords
   (c-lang-const c-not-decl-init-keywords))
@@ -2548,8 +2637,8 @@ Note that Java specific rules are currently applied to tell this from
 		;; with unintelligible errors.  (XEmacs works.)
 		;; (2015-06-24): This bug has not yet been fixed.
 		;; (c--mapcan (lambda (lang-const)
-		;; 	      (list lang-const t))
-		;; 	    lang-const-list)
+		;;	      (list lang-const t))
+		;;	    lang-const-list)
 		(apply 'nconc (mapcar (lambda (lang-const)
 					(list lang-const t))
 				      lang-const-list))))
@@ -3024,6 +3113,20 @@ expression is considered to be a type."
 		    ; generics is not yet coded in CC Mode.
 (c-lang-defvar c-recognize-<>-arglists (c-lang-const c-recognize-<>-arglists))
 
+(c-lang-defconst c-<>-notable-chars-re
+  "A regexp matching any single character notable inside a <...> construct.
+This must include \"<\" and \">\", and should include \",\", and
+any character which cannot be valid inside such a construct.
+This is used in `c-forward-<>-arglist-recur' to try to detect
+sequences of tokens which cannot be a template/generic construct.
+When \"(\" is present, that defun will attempt to parse a
+parenthesized expression inside the template.  When \")\" is
+present it will treat an unbalanced closing paren as a sign of
+the invalidity of the putative template construct."
+  t "[<;{},|+&->)]"
+  c++ "[<;{},>()]")
+(c-lang-defvar c-<>-notable-chars-re (c-lang-const c-<>-notable-chars-re))
+
 (c-lang-defconst c-enums-contain-decls
   "Non-nil means that an enum structure can contain declarations."
   t nil
@@ -3285,7 +3388,6 @@ accomplish that conveniently."
 
 	     (error
 	      (if current-var
-		  (progn
 		  (message "Eval error in the `c-lang-defvar' or `c-lang-setvar' for `%s'%s: %S"
 			   current-var
 			   (if source-eval
@@ -3294,7 +3396,6 @@ accomplish that conveniently."
 				       ',mode ,c-version c-version)
 			     "")
 			   err)
-		  (debug))
 		(signal (car err) (cdr err)))))))
 
     ;; Being evaluated from source.  Always use the dynamic method to
